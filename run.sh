@@ -1,3 +1,3 @@
 #!/bin/bash
 
-./.venv/bin/python
+./.venv/bin/python ./photo_download.py
