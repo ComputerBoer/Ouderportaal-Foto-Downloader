@@ -2,8 +2,8 @@ import os
 import requests
 from datetime import datetime, timezone
 import getpass
-import time
 import argparse
+import piexif
 
 # ==== CONFIGURATION ====
 START = 0
@@ -73,7 +73,7 @@ def fetch_json(url):
     return response.json()
 
 
-def download_photo(url, filepath):
+def download_photo(url, filepath, description=None): # Modified signature
     headers = {"Authorization": f"Bearer {auth_token}"}
     response = session.get(url, headers=headers, timeout=30)
 
@@ -89,6 +89,28 @@ def download_photo(url, filepath):
         f.write(response.content)
 
     print(f"✅ Saved: {filepath}")
+
+    if description: # Add description as EXIF metadata
+        try:
+            # Load existing EXIF data or create a new empty one
+            try:
+                exif_dict = piexif.load(filepath)
+            except piexif.InvalidImageDataError:
+                # If no EXIF data exists, create an empty structure
+                exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "Interop": {}, "1st": {}, "thumbnail": None}
+
+            # Set the ImageDescription tag (EXIF tag 270) in the 0th IFD
+            # piexif expects bytes for string values, so encode the description
+            exif_dict["0th"][piexif.ImageIFD.ImageDescription] = description.encode("utf-8")
+
+            # Dump the dictionary to EXIF bytes
+            exif_bytes = piexif.dump(exif_dict)
+
+            # Insert the EXIF data into the image file
+            piexif.insert(exif_bytes, filepath)
+            print(f"📝 Added description metadata to {filepath}")
+        except Exception as e:
+            print(f"⚠️ Could not add description metadata to {filepath}: {e}")
     
 
 def process_data(data):
@@ -103,14 +125,15 @@ def process_data(data):
 
         days_processed += 1
         date_str = datetime.fromtimestamp(
-            date_ms / 1000, timezone.utc
+            date_ms / 1000
         ).strftime("%Y%m%d")
 
         for i, photo in enumerate(photos, start=1):
             url = photo.get("fullSizeUrl")
+            description = photo.get("description") # Extract the description
             filename = f"{date_str}-{i:02d}.jpg"
             filepath = os.path.join(DOWNLOAD_DIR, filename)
-            download_photo(url, filepath)
+            download_photo(url, filepath, description=description) # Pass the description
 
     return days_processed
 
@@ -127,6 +150,8 @@ try:
     parser.add_argument("--days", type=int, help="Amount of days to fetch")
 
     args = parser.parse_args()
+
+
 
     ORG = args.org or input("Enter your Organisation: ").strip()
     USERNAME = args.username or input("Enter your username (email): ").strip()
